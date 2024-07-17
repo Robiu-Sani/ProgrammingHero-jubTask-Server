@@ -1,14 +1,19 @@
 const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcrypt");
-const jwt = require("jsonwebtoken");
 const cookieParser = require("cookie-parser");
 require("dotenv").config();
+const jwt = require("jsonwebtoken");
 const app = express();
 const port = process.env.PORT || 5000;
 
 // Middleware
-app.use(cors());
+app.use(
+  cors({
+    origin: "http://localhost:5173",
+    credentials: true,
+  })
+);
 app.use(express.json());
 app.use(cookieParser());
 
@@ -29,105 +34,97 @@ async function run() {
       .db("PayPathApplication")
       .collection("users");
 
-    // Middleware to verify JWT token
-    function verifyToken(req, res, next) {
-      const token = req.cookies.token;
-
-      if (!token) {
-        return res.status(401).send("Access Denied");
+    // middlewares
+    const verifyToken = (req, res, next) => {
+      // console.log('inside verify token', req.headers.authorization);
+      if (!req.headers.authorization) {
+        return res.status(401).send({ message: "unauthorized access" });
       }
-
-      try {
-        const verified = jwt.verify(token, process.env.JWT_SECRET);
-        req.user = verified;
+      const token = req.headers.authorization.split(" ")[1];
+      jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+        if (err) {
+          return res.status(401).send({ message: "unauthorized access" });
+        }
+        req.decoded = decoded;
         next();
-      } catch (err) {
-        res.status(400).send("Invalid Token");
-      }
-    }
-
-    // Generate JWT token
-    function generateToken(user) {
-      return jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-        expiresIn: "1h", // Token expires in 1 hour
       });
-    }
+    };
 
-    // POST a new user with hashed password and generate token
+    // use verify admin after verifyToken
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded.email;
+      const query = { email: email };
+      const user = await userCollection.findOne(query);
+      const isAdmin = user?.status === "admin";
+      if (!isAdmin) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      next();
+    };
+
     app.post("/users", async (req, res) => {
       const user = req.body;
+      const { email } = req.body;
       const saltRounds = 10;
 
-      // Hash the password before storing it
       try {
         user.password = await bcrypt.hash(user.password, saltRounds);
         const result = await users_collection.insertOne(user);
+        const token = jwt.sign({ email: user.email }, process.env.JWT_SECRET, {
+          expiresIn: "1h",
+        });
 
-        // Generate JWT token
-        const token = generateToken(user);
-
-        // Set the token in the cookies
-        res.cookie("token", token, { httpOnly: true });
-
-        res.json({ result, token });
+        res.json({
+          message: "User created successfully",
+          email,
+          result,
+          token,
+        });
       } catch (err) {
         console.error(err);
         res.status(500).send("Error hashing password");
       }
     });
 
-    // POST login route to authenticate user and generate JWT
     app.post("/login", async (req, res) => {
-      const { username, password } = req.body;
-      console.log("Received login request for:", username); // Debugging statement
-
+      const { email, password } = req.body;
       try {
-        // Find the user by email or mobile number
         const user = await users_collection.findOne({
-          $or: [{ email: username }, { mobile: username }],
+          $or: [{ email: email }],
         });
 
         if (!user) {
           return res.status(400).send("User not found");
         }
 
-        // Compare the provided password with the hashed password
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
           return res.status(400).send("Invalid password");
         }
 
-        // Generate JWT token
-        const token = generateToken(user);
+        const token = jwt.sign({ email }, process.env.JWT_SECRET, {
+          expiresIn: "1h",
+        });
 
-        // Set the token in the cookies
-        res.cookie("token", token, { httpOnly: true });
-
-        // Send the token to the client
-        res.json({ token });
+        res.json({ message: "Login successful", email, token });
       } catch (err) {
         console.error(err);
         res.status(500).send("Error logging in");
       }
     });
 
-    // Apply verifyToken middleware to all routes below
-    app.use(verifyToken);
-
-    // GET all users (protected)
     app.get("/users", async (req, res) => {
       const result = await users_collection.find().toArray();
       res.send(result);
     });
   } finally {
-    // No operation currently in the finally block
   }
 }
 run().catch(console.dir);
 
 // Default route
 app.get("/", (req, res) => {
-  res.send("Single building website API");
+  res.send("Payment method root api");
 });
 
 // Listen on port

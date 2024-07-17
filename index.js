@@ -79,10 +79,14 @@ async function run() {
     // POST login route to authenticate user and generate JWT
     app.post("/login", async (req, res) => {
       const { username, password } = req.body;
+      console.log("Received login request for:", username); // Debugging statement
 
       try {
-        // Find the user by username
-        const user = await users_collection.findOne({ username });
+        // Find the user by email or mobile number
+        const user = await users_collection.findOne({
+          $or: [{ email: username }, { mobile: username }],
+        });
+
         if (!user) {
           return res.status(400).send("User not found");
         }
@@ -114,18 +118,6 @@ async function run() {
     app.get("/users", async (req, res) => {
       const result = await users_collection.find().toArray();
       res.send(result);
-    });
-
-    // Protected route example for POST
-    app.post("/protected-post", async (req, res) => {
-      // Your protected post logic here
-      res.send("This is a protected POST route");
-    });
-
-    // Protected route example for GET
-    app.get("/protected-get", async (req, res) => {
-      // Your protected get logic here
-      res.send("This is a protected GET route");
     });
   } finally {
     // No operation currently in the finally block

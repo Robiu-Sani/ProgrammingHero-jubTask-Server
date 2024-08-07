@@ -33,6 +33,14 @@ async function run() {
       .db("PayPathApplication")
       .collection("users");
 
+    const users_profile = client
+      .db("PayPathApplication")
+      .collection("profiles");
+
+    const users_history = client
+      .db("PayPathApplication")
+      .collection("historys");
+
     // Register user
     app.post("/users", async (req, res) => {
       const user = req.body;
@@ -85,6 +93,107 @@ async function run() {
         console.error(err);
         res.status(500).send("Error fetching users");
       }
+    });
+
+    //get history
+    app.get("/history", async (req, res) => {
+      const result = await users_history.find().toArray();
+      res.send(result);
+    });
+
+    //get user by number
+    app.get("/usernumber/:number", async (req, res) => {
+      const number = req.params.number;
+      const query = { number: number };
+      const user = await users_collection.findOne(query);
+      res.send(user);
+    });
+
+    //update user balance by number for send money
+    app.patch("/sendMoney/:number", async (req, res) => {
+      try {
+        const number = req.params.number;
+        const query = { number: number };
+        const requestBalance = parseInt(req.body.amount);
+        const senderEmail = req.body.email;
+
+        // Find the recipient user by number
+        const recipientUser = await users_collection.findOne(query);
+        if (!recipientUser) {
+          return res.status(404).send({ message: "Recipient user not found" });
+        }
+
+        // Find the sender user by email
+        const senderQuery = { email: senderEmail };
+        const senderUser = await users_collection.findOne(senderQuery);
+        if (!senderUser) {
+          return res.status(404).send({ message: "Sender user not found" });
+        }
+
+        // Check if the recipient and sender numbers are the same
+        if (number === senderUser.number) {
+          return res
+            .status(400)
+            .send({ message: "You cannot send money to your own number" });
+        }
+
+        // Calculate the new balance for the recipient
+        const newRecipientBalance =
+          parseInt(recipientUser.balance) +
+          (requestBalance - (requestBalance / 100) * 1.3);
+        const updateRecipientData = {
+          $set: { balance: newRecipientBalance },
+        };
+
+        // Calculate the new balance for the sender
+        const newSenderBalance = parseInt(senderUser.balance) - requestBalance;
+        const updateSenderData = {
+          $set: { balance: newSenderBalance },
+        };
+
+        // Prepare transaction history data
+        const transactionData = {
+          ...req.body,
+          prevBalance: senderUser.balance,
+          currentBalance: newSenderBalance,
+        };
+
+        // Update the recipient's balance
+        const recipientUpdateResult = await users_collection.updateOne(
+          query,
+          updateRecipientData
+        );
+
+        // Update the sender's balance
+        const senderUpdateResult = await users_collection.updateOne(
+          senderQuery,
+          updateSenderData
+        );
+
+        // Insert the transaction history
+        const transactionHistoryResult = await users_history.insertOne(
+          transactionData
+        );
+
+        // Send the response with all update results
+        res.send({
+          message: "Transaction successful",
+          recipientBalanceUpdate: recipientUpdateResult,
+          senderBalanceUpdate: senderUpdateResult,
+          transactionHistoryInsert: transactionHistoryResult,
+        });
+      } catch (error) {
+        console.error("Error during transaction:", error);
+        res.status(500).send({ message: "Server error" });
+      }
+    });
+
+    //get user by email
+    app.get("/useremail/:email", async (req, res) => {
+      const email = req.params.email;
+      const query = { email: email };
+      const user = await users_collection.findOne(query);
+      res.send(user);
     });
 
     // Other routes...

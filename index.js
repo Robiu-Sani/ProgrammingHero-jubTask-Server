@@ -33,13 +33,103 @@ async function run() {
       .db("PayPathApplication")
       .collection("users");
 
+    const users_history = client
+      .db("PayPathApplication")
+      .collection("historys");
+
+    const cash_in = client.db("PayPathApplication").collection("cashIn");
+
     const users_profile = client
       .db("PayPathApplication")
       .collection("profiles");
 
-    const users_history = client
-      .db("PayPathApplication")
-      .collection("historys");
+    //get request data data
+    app.get("/cashIn", async (req, res) => {
+      try {
+        const result = await cash_in.find().toArray();
+        res.send(result);
+      } catch (err) {
+        console.error(err);
+        res.status(500).send("Error fetching users");
+      }
+    });
+
+    //add cashin post
+    app.post(`/cashIn`, async (req, res) => {
+      const data = req.body;
+      const result = await cash_in.insertOne(data);
+      res.send(result);
+    });
+
+    app.delete(`/removeCashIn/:id`, async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await cash_in.deleteOne(query);
+      res.send(result);
+    });
+
+    app.delete(`/AddCashIn/:id`, async (req, res) => {
+      try {
+        const id = req.params.id;
+        const senderEmail = req.body.email;
+        const amountToAdd = parseInt(req.body.amount);
+
+        // Validate the incoming request data
+        if (!senderEmail || isNaN(amountToAdd)) {
+          return res.status(400).send({ message: "Invalid request data" });
+        }
+
+        // Log the history of this request
+        const history = await users_history.insertOne(req.body);
+        if (!history.insertedId) {
+          return res
+            .status(500)
+            .send({ message: "Failed to log request history" });
+        }
+
+        // Find the sender user by email
+        const senderQuery = { email: senderEmail };
+        const senderUser = await users_collection.findOne(senderQuery);
+        if (!senderUser) {
+          return res.status(404).send({ message: "Sender user not found" });
+        }
+
+        // Calculate the new balance for the sender
+        const newSenderBalance = parseInt(senderUser.balance) + amountToAdd;
+
+        // Update the sender's balance
+        const updateSenderData = {
+          $set: { balance: newSenderBalance },
+        };
+        const senderUpdateResult = await users_collection.updateOne(
+          senderQuery,
+          updateSenderData
+        );
+
+        if (senderUpdateResult.modifiedCount === 0) {
+          return res
+            .status(500)
+            .send({ message: "Failed to update sender's balance" });
+        }
+
+        // Delete the cash-in record
+        const query = { _id: new ObjectId(id) };
+        const deleteResult = await cash_in.deleteOne(query);
+
+        if (deleteResult.deletedCount === 0) {
+          return res
+            .status(500)
+            .send({ message: "Failed to delete cash-in record" });
+        }
+
+        res.send({
+          message: "Cash-in record deleted and balance updated successfully",
+        });
+      } catch (error) {
+        console.error("Error deleting cash-in record:", error);
+        res.status(500).send({ message: "Server error" });
+      }
+    });
 
     // Register user
     app.post("/users", async (req, res) => {
@@ -135,6 +225,13 @@ async function run() {
           return res
             .status(400)
             .send({ message: "You cannot send money to your own number" });
+        }
+
+        ////for checking balance
+        if (senderUser.balance < requestBalance) {
+          return res
+            .status(400)
+            .send({ message: "You don't have mutch money to send." });
         }
 
         // Calculate the new balance for the recipient

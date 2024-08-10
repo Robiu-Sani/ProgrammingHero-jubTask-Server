@@ -1,22 +1,15 @@
 const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcrypt");
-const cookieParser = require("cookie-parser");
+// const cookieParser = require("cookie-parser");
 require("dotenv").config();
 const app = express();
 const port = process.env.PORT || 5000;
 
 // Middleware
-app.use(
-  cors({
-    origin: [
-      "http://localhost:5173",
-      "https://magenta-tapioca-a374bb.netlify.app",
-    ],
-  })
-);
+app.use(cors());
 app.use(express.json());
-app.use(cookieParser());
+// app.use(cookieParser());
 
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.541tyao.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
@@ -32,6 +25,7 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     await client.connect();
+    console.log("Connected to MongoDB successfully");
     const users_collection = client
       .db("PayPathApplication")
       .collection("users");
@@ -306,16 +300,22 @@ async function run() {
     });
 
     // Other routes...
+  } catch (err) {
+    console.error(err);
   } finally {
     // Ensure the client will close when you finish/error
   }
 }
 
-run().catch(console.dir);
+// run().catch(console.dir);
 
 // Default route
 app.get("/", (req, res) => {
   res.send("Payment method root API");
+});
+
+app.get("/test", (req, res) => {
+  res.send("API is working!");
 });
 
 // Listen on port
